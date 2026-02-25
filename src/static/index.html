@@ -1,0 +1,291 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Weborax AI Studio</title>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;600&family=Outfit:wght@700&display=swap"
+        rel="stylesheet">
+    <style>
+        :root {
+            --primary: #6366f1;
+            --secondary: #a855f7;
+            --bg: #0f172a;
+            --card-bg: rgba(30, 41, 59, 0.7);
+            --text: #f8fafc;
+        }
+
+        body {
+            margin: 0;
+            padding: 0;
+            font-family: 'Inter', sans-serif;
+            background: linear-gradient(135deg, #0f172a 0%, #1e1b4b 100%);
+            color: var(--text);
+            min-height: 100vh;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+        }
+
+        .container {
+            width: 90%;
+            max-width: 900px;
+            background: var(--card-bg);
+            backdrop-filter: blur(12px);
+            border: 1px solid rgba(255, 255, 255, 0.1);
+            border-radius: 24px;
+            padding: 40px;
+            box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.5);
+        }
+
+        h1 {
+            font-family: 'Outfit', sans-serif;
+            font-size: 2.5rem;
+            margin-bottom: 8px;
+            background: linear-gradient(to right, #818cf8, #c084fc);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+        }
+
+        p.subtitle {
+            color: #94a3b8;
+            margin-bottom: 32px;
+        }
+
+        .input-group {
+            margin-bottom: 24px;
+        }
+
+        label {
+            display: block;
+            margin-bottom: 8px;
+            font-weight: 600;
+            color: #cbd5e1;
+        }
+
+        textarea {
+            width: 100%;
+            padding: 16px;
+            background: rgba(15, 23, 42, 0.5);
+            border: 1px solid rgba(255, 255, 255, 0.1);
+            border-radius: 12px;
+            color: white;
+            font-size: 1rem;
+            font-family: inherit;
+            resize: vertical;
+            min-height: 120px;
+            transition: all 0.3s ease;
+            box-sizing: border-box;
+        }
+
+        textarea:focus {
+            outline: none;
+            border-color: var(--primary);
+            box-shadow: 0 0 0 3px rgba(99, 102, 241, 0.2);
+        }
+
+        .btn {
+            background: linear-gradient(to right, var(--primary), var(--secondary));
+            color: white;
+            border: none;
+            padding: 14px 28px;
+            border-radius: 12px;
+            font-size: 1rem;
+            font-weight: 600;
+            cursor: pointer;
+            transition: transform 0.2s, box-shadow 0.2s;
+            display: inline-flex;
+            align-items: center;
+            gap: 8px;
+        }
+
+        .btn:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 10px 15px -3px rgba(99, 102, 241, 0.4);
+        }
+
+        .btn:active {
+            transform: translateY(0);
+        }
+
+        .output-area {
+            margin-top: 32px;
+            padding: 20px;
+            background: rgba(0, 0, 0, 0.2);
+            border-radius: 12px;
+            border: 1px dashed rgba(255, 255, 255, 0.1);
+            display: none;
+        }
+
+        .output-area.active {
+            display: block;
+        }
+
+        #scriptEditor {
+            width: 100%;
+            padding: 16px;
+            background: rgba(15, 23, 42, 0.5);
+            border: 1px solid rgba(255, 255, 255, 0.1);
+            border-radius: 12px;
+            color: #e2e8f0;
+            font-size: 0.9rem;
+            font-family: monospace;
+            resize: vertical;
+            min-height: 250px;
+            line-height: 1.6;
+            box-sizing: border-box;
+        }
+
+        .status-box {
+            margin-top: 24px;
+            padding: 16px;
+            background: rgba(0, 0, 0, 0.3);
+            border-left: 4px solid var(--primary);
+            font-size: 0.85rem;
+            color: #94a3b8;
+            max-height: 150px;
+            overflow-y: auto;
+        }
+
+        .loading {
+            display: none;
+            color: #818cf8;
+            font-weight: 600;
+            margin-top: 16px;
+            animation: pulse 1.5s infinite;
+        }
+
+        @keyframes pulse {
+
+            0%,
+            100% {
+                opacity: 1;
+            }
+
+            50% {
+                opacity: 0.5;
+            }
+        }
+    </style>
+</head>
+
+<body>
+    <div class="container">
+        <h1>Local AI Studio</h1>
+        <p class="subtitle">Generate high-quality video scripts and content locally.</p>
+
+        <div class="input-group">
+            <label for="promptInput">Video Topic / Prompt</label>
+            <textarea id="promptInput"
+                placeholder="Enter your video idea here (e.g. A time traveler visits 2024)..."></textarea>
+        </div>
+
+        <div style="display: flex; gap: 12px; flex-wrap: wrap;">
+            <button class="btn" onclick="generateScript()">
+                <span>✨</span> Generate Script
+            </button>
+            <button class="btn" style="background: rgba(255,255,255,0.1); border: 1px solid rgba(255,255,255,0.2);"
+                onclick="toggleManualEntry()">
+                <span>📝</span> I already have a script
+            </button>
+        </div>
+
+        <div id="loading" class="loading">Generating your script with local LLM (127.0.0.1:11434)...</div>
+
+        <div id="outputArea" class="output-area">
+            <h3>Refine Your Script</h3>
+            <textarea id="scriptEditor"></textarea>
+
+            <div style="margin-top: 20px;">
+                <button class="btn" style="background: #10b981;" onclick="renderVideo()">
+                    <span>🎬</span> Render Final Video
+                </button>
+            </div>
+
+            <div class="status-box">
+                <strong>Pipeline Status:</strong>
+                <div id="statusLog">Waiting for input...</div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        let statusInterval;
+
+        async function fetchStatus() {
+            try {
+                const response = await fetch('/api/status');
+                const data = await response.json();
+                document.getElementById('statusLog').innerHTML = data.log.join('<br>');
+            } catch (e) { }
+        }
+
+        function toggleManualEntry() {
+            const outputArea = document.getElementById('outputArea');
+            const scriptEditor = document.getElementById('scriptEditor');
+            const prompt = document.getElementById('promptInput').value;
+
+            outputArea.classList.add('active');
+            if (prompt) {
+                scriptEditor.value = prompt;
+            }
+            if (!statusInterval) statusInterval = setInterval(fetchStatus, 2000);
+            outputArea.scrollIntoView({ behavior: 'smooth' });
+        }
+
+        async function generateScript() {
+            const prompt = document.getElementById('promptInput').value;
+            if (!prompt) return alert('Please enter a prompt');
+
+            const loading = document.getElementById('loading');
+            const outputArea = document.getElementById('outputArea');
+            const scriptEditor = document.getElementById('scriptEditor');
+
+            loading.innerText = "Connecting to Local LLM (127.0.0.1)... This may take 1-2 minutes.";
+            loading.style.display = 'block';
+            outputArea.classList.remove('active');
+
+            try {
+                const response = await fetch('/api/generate-script', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ prompt })
+                });
+
+                if (!response.ok) {
+                    const errorData = await response.json();
+                    throw new Error(errorData.detail || 'LLM Timeout or Error');
+                }
+
+                const data = await response.json();
+
+                if (data.script.startsWith('Error')) {
+                    alert(data.script + "\n\nTry manually pulling the model: ollama pull gemma2:2b");
+                    return;
+                }
+
+                scriptEditor.value = data.script;
+                outputArea.classList.add('active');
+                if (!statusInterval) statusInterval = setInterval(fetchStatus, 2000);
+            } catch (error) {
+                alert('LLM Error: ' + error.message + '\n\nTIP: If you already have a script, click "I already have a script" instead.');
+            } finally {
+                loading.style.display = 'none';
+            }
+        }
+
+        async function renderVideo() {
+            const script = document.getElementById('scriptEditor').value;
+
+            await fetch('/api/render-video', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ script })
+            });
+            alert('Video rendering started in background! Watch the status log below.');
+        }
+    </script>
+</body>
+
+</html>

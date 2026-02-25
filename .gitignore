@@ -1,0 +1,28 @@
+# ---- Secrets & Credentials ----
+.env
+Client_secret.json
+client_secret*.json
+youtube_token.pickle
+
+# ---- Generated Output ----
+outputs/
+
+# ---- Python ----
+__pycache__/
+*.pyc
+*.pyo
+*.egg-info/
+dist/
+build/
+*.egg
+
+# ---- IDE ----
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# ---- OS ----
+Thumbs.db
+.DS_Store
+desktop.ini
