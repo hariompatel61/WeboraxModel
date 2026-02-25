@@ -1,7 +1,6 @@
 name: "🎬 Generate & Upload Video"
 
 on:
-  # Manual trigger button on GitHub
   workflow_dispatch:
     inputs:
       topic:
@@ -10,7 +9,6 @@ on:
         default: ""
         type: string
 
-  # Automatic daily schedule: 7 AM and 7 PM IST = 1:30 AM and 1:30 PM UTC
   schedule:
     - cron: "30 1 * * *"   # 7:00 AM IST daily
     - cron: "30 13 * * *"  # 7:00 PM IST daily
@@ -18,7 +16,7 @@ on:
 jobs:
   generate-and-upload:
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    timeout-minutes: 45
 
     steps:
       - name: 📥 Checkout code
@@ -66,27 +64,23 @@ jobs:
           echo '${{ secrets.CLIENT_SECRET_JSON }}' > Client_secret.json
 
           # Write YouTube token from secret (base64 encoded)
-          echo '${{ secrets.YOUTUBE_TOKEN_B64 }}' | base64 -d > youtube_token.pickle
+          if [ -n "${{ secrets.YOUTUBE_TOKEN_B64 }}" ]; then
+            echo '${{ secrets.YOUTUBE_TOKEN_B64 }}' | base64 -d > youtube_token.pickle
+            echo "Successfully restored youtube_token.pickle"
+          else
+            echo "::error::YOUTUBE_TOKEN_B64 secret is MISSING! Did you follow Step 1?"
+            exit 1
+          fi
 
-      - name: 🎬 Generate Video & Upload to YouTube
-        run: |
-          cd src
-          python -c "
-          import sys, os, asyncio
-          sys.path.insert(0, '.')
-          os.chdir('..')
-          from app import run_full_pipeline
-          asyncio.run(run_full_pipeline(script_text=None, auto_upload=True))
-          "
+      - name: 🎬 Run Video Bot
+        run: python run_bot.py
         env:
           PYTHONDONTWRITEBYTECODE: 1
 
-      - name: 📊 Upload logs as artifact
-        if: always()
+      - name: 📊 Upload generated video (on success)
+        if: success()
         uses: actions/upload-artifact@v4
         with:
-          name: pipeline-logs-${{ github.run_number }}
-          path: |
-            outputs/scheduler.log
-            outputs/video/
+          name: generated-video-${{ github.run_number }}
+          path: outputs/video/
           retention-days: 7
