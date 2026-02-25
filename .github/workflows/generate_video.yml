@@ -1,0 +1,92 @@
+name: "🎬 Generate & Upload Video"
+
+on:
+  # Manual trigger button on GitHub
+  workflow_dispatch:
+    inputs:
+      topic:
+        description: "Video topic (leave empty for auto-generated)"
+        required: false
+        default: ""
+        type: string
+
+  # Automatic daily schedule: 7 AM and 7 PM IST = 1:30 AM and 1:30 PM UTC
+  schedule:
+    - cron: "30 1 * * *"   # 7:00 AM IST daily
+    - cron: "30 13 * * *"  # 7:00 PM IST daily
+
+jobs:
+  generate-and-upload:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    steps:
+      - name: 📥 Checkout code
+        uses: actions/checkout@v4
+
+      - name: 🐍 Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: "pip"
+
+      - name: 🎵 Install FFmpeg
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq ffmpeg
+
+      - name: 📦 Install Python dependencies
+        run: |
+          pip install --upgrade pip
+          pip install -r requirements.txt
+
+      - name: 🔑 Setup credentials
+        run: |
+          # Write .env from secrets
+          cat > .env << 'ENVEOF'
+          LLM_PROVIDER=bytez
+          BYTEZ_API_KEY=${{ secrets.BYTEZ_API_KEY }}
+          BYTEZ_MODEL=Qwen/Qwen3-4B
+          GEMINI_API_KEY=${{ secrets.GEMINI_API_KEY }}
+          GEMINI_MODEL=gemini-2.0-flash
+          AIMLAPI_KEY=${{ secrets.AIMLAPI_KEY }}
+          CHATGPT_IMAGE_API_KEY=${{ secrets.CHATGPT_IMAGE_API_KEY }}
+          VIDEO_DURATION=30
+          VIDEO_WIDTH=1080
+          VIDEO_HEIGHT=1920
+          VIDEO_FPS=24
+          NARRATOR_VOICE=en-US-GuyNeural
+          YOUTUBE_CLIENT_SECRET_FILE=Client_secret.json
+          YOUTUBE_CATEGORY=24
+          MADE_FOR_KIDS=false
+          PLAYLIST_ID=${{ secrets.PLAYLIST_ID }}
+          ENVEOF
+
+          # Write Client_secret.json from secret
+          echo '${{ secrets.CLIENT_SECRET_JSON }}' > Client_secret.json
+
+          # Write YouTube token from secret (base64 encoded)
+          echo '${{ secrets.YOUTUBE_TOKEN_B64 }}' | base64 -d > youtube_token.pickle
+
+      - name: 🎬 Generate Video & Upload to YouTube
+        run: |
+          cd src
+          python -c "
+          import sys, os, asyncio
+          sys.path.insert(0, '.')
+          os.chdir('..')
+          from app import run_full_pipeline
+          asyncio.run(run_full_pipeline(script_text=None, auto_upload=True))
+          "
+        env:
+          PYTHONDONTWRITEBYTECODE: 1
+
+      - name: 📊 Upload logs as artifact
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: pipeline-logs-${{ github.run_number }}
+          path: |
+            outputs/scheduler.log
+            outputs/video/
+          retention-days: 7

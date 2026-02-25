@@ -3,6 +3,11 @@
 Client_secret.json
 client_secret*.json
 youtube_token.pickle
+youtube_token_b64.txt
+generate_token.py
+exchange_token.py
+setup_autostart.bat
+run_scheduler.bat
 
 # ---- Generated Output ----
 outputs/
