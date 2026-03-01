@@ -14,6 +14,7 @@ import re
 import traceback
 import time
 import random
+from datetime import datetime
 import json
 import base64
 import requests as http_requests
@@ -29,6 +30,7 @@ sys.path.append(os.path.dirname(os.path.abspath(__file__)))
 
 from app_config import Config
 from modules.llm_client import LLMClient
+from modules.topic_history import TopicHistory
 
 # --- Image & Video libraries ---
 import numpy as np
@@ -158,7 +160,7 @@ def _build_3d_prompt(visual_desc):
         f"Scene: {visual_desc}"
     )[:2000]
 
-
+    
 def _download_and_save_image(image_url, filepath):
     """Download image from URL and resize to video dimensions."""
     img_response = http_requests.get(image_url, timeout=30)
@@ -445,66 +447,186 @@ def upload_to_youtube(video_path, title, description, tags):
 # SCRIPT GENERATION (via LLM)
 # ================================================================
 
+# ---- Satire Angle Pool ----
+SATIRE_ANGLES = [
+    {"angle": "inflation", "topic": "rising prices of essentials, petrol, gas, groceries", "visual_hint": "petrol pump meter spinning wildly"},
+    {"angle": "unemployment", "topic": "youth unemployment, degree holders without jobs", "visual_hint": "students throwing paper planes made of degrees"},
+    {"angle": "elections", "topic": "election promises vs reality, vote bank politics", "visual_hint": "politicians on stage making grand promises with a lie detector"},
+    {"angle": "social_media", "topic": "politicians obsessed with reels, Twitter wars, PR stunts", "visual_hint": "leaders making reels instead of working"},
+    {"angle": "budget", "topic": "Union Budget reactions, tax hikes, middle class struggles", "visual_hint": "finance minister presenting budget while common man gasps"},
+    {"angle": "startup_culture", "topic": "startup India vs reality, funding winter, jugaad culture", "visual_hint": "startup founders pitching absurd ideas on Shark Tank"},
+    {"angle": "education_system", "topic": "board exams panic, coaching mafia, NEP confusion", "visual_hint": "school turning into a factory assembly line"},
+    {"angle": "cricket_politics", "topic": "IPL auction madness, cricket diplomacy, sports budget", "visual_hint": "politicians playing cricket in Parliament"},
+    {"angle": "smart_city", "topic": "smart city project failures, pothole-filled roads, water crisis", "visual_hint": "politician inaugurating a smart city hologram over potholes"},
+    {"angle": "ai_tech", "topic": "AI replacing jobs, ChatGPT in governance, tech buzzwords", "visual_hint": "robot sitting in Parliament answering questions"},
+    {"angle": "festivals", "topic": "festival politics, holiday debates, commercialization", "visual_hint": "leaders competing over who celebrates the biggest festival"},
+    {"angle": "healthcare", "topic": "hospital queues, Ayushman Bharat reality, doctor shortage", "visual_hint": "hospital with VIP lane for politicians and waiting line for public"},
+    {"angle": "traffic_infra", "topic": "traffic jams, Delhi metro crowd, expressway tolls", "visual_hint": "VIP convoy causing massive traffic jam"},
+    {"angle": "scam_expose", "topic": "politician caught in scam, raid comedy, swiss bank humour", "visual_hint": "politician hiding money in mattress during IT raid"},
+    {"angle": "weather_crisis", "topic": "floods, heatwave, pollution AQI, climate denial", "visual_hint": "politician giving speech in gas mask during smog"},
+]
+
+# Global topic history instance
+_topic_history = TopicHistory()
+
+
+def _pick_satire_angle(exclude=None):
+    """Pick a satire angle that hasn't been used recently.
+    
+    Args:
+        exclude: Optional list of angle names to additionally exclude (for retries).
+    """
+    recent_angles = _topic_history.get_recent_angles(8)
+    excluded = set(recent_angles)
+    if exclude:
+        excluded.update(exclude)
+    # Filter out recently used + excluded angles
+    available = [a for a in SATIRE_ANGLES if a["angle"] not in excluded]
+    if not available:
+        available = SATIRE_ANGLES  # Reset if all exhausted
+    return random.choice(available)
+
+
 def generate_satire_script():
-    """Generate a 30-second political satire script using the configured LLM."""
-    prompt = """You are a top-tier Indian political satire writer for YouTube Shorts.
+    """Generate a unique 30-second political satire script using the configured LLM.
+    
+    Always generates fresh content via LLM — no hardcoded scripts.
+    Retries up to 3 times with different angles if the first attempt fails.
+    """
+    MAX_RETRIES = 3
+    tried_angles = []
+    last_error = None
+
+    for attempt in range(MAX_RETRIES):
+        now = datetime.now()
+        date_str = now.strftime("%B %d, %Y (%A)")
+        angle = _pick_satire_angle(exclude=tried_angles)
+        tried_angles.append(angle["angle"])
+        recent_topics = _topic_history.get_recent_topics(15)
+        today_topics = _topic_history.get_topics_used_today()
+        
+        # Build avoidance list
+        avoid_section = ""
+        if recent_topics:
+            avoid_list = "\n".join(f"  - {t}" for t in recent_topics[-10:])
+            avoid_section = f"""\n\nCRITICAL — DO NOT REPEAT these recent topics (generate something COMPLETELY different):
+{avoid_list}"""
+        
+        if today_topics:
+            today_list = ", ".join(today_topics)
+            avoid_section += f"\nAlready generated today: {today_list}. Pick a TOTALLY different angle."
+
+        prompt = f"""You are a top-tier Indian political satire writer for YouTube Shorts.
+Today is {date_str}. Generate a BRAND NEW, NEVER-SEEN-BEFORE comedy script.
+
+TODAY'S ANGLE: {angle['topic']}
+Visual inspiration: {angle['visual_hint']}
 
 Write a VERY SHORT (30 seconds / 60-80 words) Hindi-English mix comedy script.
+Make it TOPICAL and FRESH — reference current events, trending topics, or seasonal themes for {now.strftime('%B %Y')}.
 
 FORMAT - exactly 4 scenes:
 
 Scene 1 -- Hook
-Visual: [describe a funny 3D cartoon scene with Indian politicians]
+Visual: [describe a funny 3D cartoon scene with Indian politicians, related to {angle['topic']}]
 Narrator: [one punchy sarcastic line in Hinglish]
 
 Scene 2 -- Problem
-Visual: [visual gag about inflation/unemployment/education]  
-Modi: [funny dialogue]
+Visual: [visual gag about {angle['topic']}]
+Modi: [funny dialogue about {angle['topic']}]
 Rahul: [funny response]
 
 Scene 3 -- Punchline
-Visual: [visual comedy twist]
+Visual: [unexpected visual comedy twist]
 Kejriwal: [sarcastic one-liner]
 
 Scene 4 -- Ending
 Visual: [common man reaction shot]
-Narrator: [final punchline about voting power]
+Narrator: [final punchline with a message]
 
 RULES:
+- MUST be completely ORIGINAL and UNIQUE — never repeat the same joke or setup
 - Keep it FUNNY and SARCASTIC
 - No hate speech, no abuse
-- Mix Hindi + English naturally
+- Mix Hindi + English naturally (Hinglish)
 - Total spoken words: 60-80 (fits 30 seconds)
 - Each dialogue max 15 words
-- Make it VIRAL-worthy"""
+- Make it VIRAL-worthy and SHAREABLE
+- Reference {angle['topic']} creatively{avoid_section}"""
 
+        try:
+            safe_print(f"  [SCRIPT] Attempt {attempt + 1}/{MAX_RETRIES} — angle: {angle['angle']}")
+            script = llm.generate(prompt)
+            # Log to history
+            _topic_history.add_topic(
+                title=_extract_title_from_script(script),
+                angle=angle["angle"],
+            )
+            return script
+        except Exception as e:
+            last_error = e
+            safe_print(f"  [WARN] Script attempt {attempt + 1} failed ({angle['angle']}): {e}")
+            import time as _time
+            _time.sleep(2 * (attempt + 1))  # Backoff before retry
+
+    # All retries exhausted — raise so pipeline reports clearly
+    raise RuntimeError(
+        f"Script generation failed after {MAX_RETRIES} attempts. "
+        f"Tried angles: {tried_angles}. Last error: {last_error}"
+    )
+
+
+def _extract_title_from_script(script_text):
+    """Extract a title-like summary from the generated script for history tracking."""
+    # Try to find the first scene hook line
+    match = re.search(r'Scene\s*1[^\n]*\n.*?(?:Narrator|Visual)[^:]*:\s*["\u201c]?([^"\u201d\n]{10,80})', script_text, re.DOTALL)
+    if match:
+        return match.group(1).strip()[:80]
+    # Fallback: use first 80 chars
+    clean = re.sub(r'[\*#_\-=]', '', script_text).strip()
+    return clean[:80] if clean else f"Script {datetime.now().strftime('%Y%m%d_%H%M')}"
+
+
+def generate_dynamic_metadata(script_text):
+    """Generate YouTube title, description, and tags dynamically from the script content."""
+    prompt = f"""Based on this Indian political satire script, generate YouTube Shorts metadata.
+
+Script:
+{script_text[:500]}
+
+Return a punchy, curiosity-driven YouTube title (max 60 chars), a short description (2-3 lines with hashtags), and relevant tags.
+
+Return ONLY valid JSON (no markdown):
+{{
+  "title": "Your catchy title here #shorts",
+  "description": "Short engaging description with hashtags",
+  "tags": ["tag1", "tag2", "tag3"]
+}}"""
     try:
-        script = llm.generate(prompt)
-        return script
+        metadata = llm.generate_json(prompt)
+        if isinstance(metadata, dict) and "title" in metadata:
+            # Ensure title is not too long
+            if len(metadata.get("title", "")) > 100:
+                metadata["title"] = metadata["title"][:97] + "..."
+            return metadata
     except Exception as e:
-        safe_print(f"Script generation error: {e}")
-        # Return a default script
-        return DEFAULT_SCRIPT
-
-
-DEFAULT_SCRIPT = """
-Scene 1 -- Sansad Reality Show Opening
-Visual: Indian Parliament turned into a WWE arena with spotlights and dramatic music. 3D cartoon politicians sitting at desks.
-Narrator: "Swagat hai duniya ke sabse bade reality show mein... jahan action real hai, solutions scripted!"
-
-Scene 2 -- Inflation Battle
-Visual: Petrol pump meter spinning wildly like a slot machine. Price board showing 999.
-Modi: "Mitron, petrol mehnga nahi hua... aapki pocket choti ho gayi hai!"
-Rahul: "Yeh petrol hai ya Bitcoin? Roz naya ATH!"
-
-Scene 3 -- Education Crisis  
-Visual: Students throwing paper plane degrees out of college windows.
-Kejriwal: "Degree free de denge... naukri ka jugaad aap khud karo!"
-
-Scene 4 -- Common Man Ending
-Visual: Common man holding TV remote labelled VOTE. Looks directly at camera.
-Narrator: "Show unka hai... par remote aapke haath mein hai. Use it wisely!"
-"""
+        safe_print(f"Metadata generation error: {e}")
+    
+    # Fallback metadata
+    return {
+        "title": f"Political Satire - {datetime.now().strftime('%d %b')} | Comedy Cartoon #shorts",
+        "description": (
+            "Indian political satire comedy cartoon! "
+            "Funny 3D animation of Modi, Rahul, Kejriwal.\n\n"
+            "#shorts #politicalsatire #indianpolitics #comedy #cartoon "
+            "#funnyshorts #3Danimation #trending"
+        ),
+        "tags": [
+            "shorts", "political satire", "indian politics", "comedy",
+            "modi", "rahul gandhi", "kejriwal", "cartoon", "3d animation",
+            "funny", "parliament", "trending", "hindi comedy"
+        ],
+    }
 
 
 # ================================================================
@@ -599,21 +721,14 @@ async def run_full_pipeline(script_text=None, auto_upload=True):
 
     # --- Step 4: YouTube Upload ---
     if auto_upload:
-        status_log.append("Uploading to YouTube...")
+        status_log.append("Generating dynamic YouTube metadata...")
         try:
-            title = "Sansad Reality Show - Election Season | Political Satire #shorts"
-            description = (
-                "Indian political satire comedy cartoon! "
-                "Funny 3D animation of Modi, Rahul, Kejriwal in Parliament.\n\n"
-                "#shorts #politicalsatire #indianpolitics #comedy #cartoon #modi #rahul "
-                "#kejriwal #parliament #funnyshorts #3Danimation"
-            )
-            tags = [
-                "shorts", "political satire", "indian politics", "comedy",
-                "modi", "rahul gandhi", "kejriwal", "cartoon", "3d animation",
-                "funny", "parliament", "election", "hindi comedy"
-            ]
+            metadata = generate_dynamic_metadata(script_text)
+            title = metadata.get("title", f"Political Satire {datetime.now().strftime('%d %b')} #shorts")
+            description = metadata.get("description", "Indian political satire comedy cartoon! #shorts")
+            tags = metadata.get("tags", ["shorts", "political satire", "comedy"])
             
+            status_log.append(f"Uploading to YouTube: {title}")
             upload_result = upload_to_youtube(final_video, title, description, tags)
             
             if "error" in upload_result:
