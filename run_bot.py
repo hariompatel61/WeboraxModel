@@ -32,7 +32,13 @@ async def run_bot():
             
     try:
         print("\nStarting video pipeline...")
-        await run_full_pipeline(script_text=None, auto_upload=True)
+        result = await run_full_pipeline(script_text=None, auto_upload=True)
+        if isinstance(result, dict) and result.get("error"):
+            print("\n" + "!" * 50)
+            print("  ❌ PIPELINE COMPLETED WITH ERRORS")
+            print("!" * 50)
+            print(f"Error: {result.get('error')}")
+            sys.exit(1)
         print("\n[SUCCESS] Pipeline completed successfully!")
     except Exception as e:
         print("\n" + "!" * 50)

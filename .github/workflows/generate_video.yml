@@ -42,11 +42,12 @@ jobs:
         run: |
           # Write .env from secrets
           cat > .env << 'ENVEOF'
-          LLM_PROVIDER=bytez
-          BYTEZ_API_KEY=${{ secrets.BYTEZ_API_KEY }}
-          BYTEZ_MODEL=Qwen/Qwen3-4B
+          # Prefer Gemini on CI (stable, non-interactive) and keep Bytez as optional backup.
+          LLM_PROVIDER=gemini
           GEMINI_API_KEY=${{ secrets.GEMINI_API_KEY }}
           GEMINI_MODEL=gemini-2.0-flash
+          BYTEZ_API_KEY=${{ secrets.BYTEZ_API_KEY }}
+          BYTEZ_MODEL=Qwen/Qwen3-4B
           AIMLAPI_KEY=${{ secrets.AIMLAPI_KEY }}
           CHATGPT_IMAGE_API_KEY=${{ secrets.CHATGPT_IMAGE_API_KEY }}
           VIDEO_DURATION=30

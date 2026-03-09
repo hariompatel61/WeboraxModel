@@ -26,6 +26,11 @@ class LLMClient:
     """Client for generating text using LLM APIs (Bytez/Groq/Ollama/Gemini)."""
 
     MAX_RETRIES = 3
+    DEFAULT_SYSTEM_PROMPT = "You are a helpful assistant."
+    JSON_SYSTEM_PROMPT = (
+        "You are a helpful assistant that always responds with valid JSON when asked for JSON output. "
+        "Never wrap JSON in markdown code blocks."
+    )
 
     def __init__(self):
         self.provider = Config.LLM_PROVIDER
@@ -65,21 +70,36 @@ class LLMClient:
         else:
             raise ValueError(f"Unknown LLM provider: {self.provider}")
 
-    def _generate_bytez(self, prompt, _retry_count=0):
+    def _generate_bytez(self, prompt, _retry_count=0, system_prompt=None):
         """Generate text using Bytez Python SDK (125+ models)."""
         try:
+            if system_prompt is None:
+                system_prompt = self.DEFAULT_SYSTEM_PROMPT
             model = self._sdk.model(self.model)
             results = model.run([
-                {"role": "system", "content": "You are a helpful assistant that always responds with valid JSON when asked for JSON output. Never wrap JSON in markdown code blocks."},
+                {"role": "system", "content": system_prompt},
                 {"role": "user", "content": prompt},
             ])
 
             if results.error:
+                # If Bytez key is invalid/unauthorized, fall back to Gemini (if configured)
+                err_text = str(results.error)
+                err_lower = err_text.lower()
+                if (
+                    ("unauthorized" in err_lower or "forbidden" in err_lower or "invalid api key" in err_lower)
+                    and Config.GEMINI_API_KEY
+                ):
+                    print(f"   ⚠️  Bytez auth error. Falling back to Gemini ({Config.GEMINI_MODEL}) for this request.")
+                    return self._generate_gemini_direct(prompt)
+                # If Bytez is rate-limited, fall back to Gemini (if configured) instead of failing the whole run.
+                if ("rate limit" in err_lower or "rate limited" in err_lower or "too many requests" in err_lower) and Config.GEMINI_API_KEY:
+                    print(f"   ⚠️  Bytez rate limited. Falling back to Gemini ({Config.GEMINI_MODEL}) for this request.")
+                    return self._generate_gemini_direct(prompt, system_prompt=system_prompt)
                 if _retry_count < 3:
                     wait = 3 * (_retry_count + 1)
                     print(f"   ⏳ Bytez error, retrying in {wait}s... ({results.error})")
                     time.sleep(wait)
-                    return self._generate_bytez(prompt, _retry_count + 1)
+                    return self._generate_bytez(prompt, _retry_count + 1, system_prompt=system_prompt)
                 raise RuntimeError(f"Bytez error: {results.error}")
 
             # Extract text content from the response
@@ -99,19 +119,52 @@ class LLMClient:
         except Exception as e:
             if "RuntimeError" in str(type(e)):
                 raise
+            # Same fallback for exception paths mentioning unauthorized/invalid key
+            if Config.GEMINI_API_KEY and any(s in str(e).lower() for s in ["unauthorized", "forbidden", "invalid api key", "invalid key"]):
+                print(f"   ⚠️  Bytez auth error. Falling back to Gemini ({Config.GEMINI_MODEL}) for this request.")
+                return self._generate_gemini_direct(prompt, system_prompt=system_prompt)
             raise RuntimeError(f"Bytez error: {e}")
+
+    def _generate_gemini_direct(self, prompt, _retry_count=0, system_prompt=None):
+        """Generate using Gemini without needing provider='gemini' initialization."""
+        api_key = Config.GEMINI_API_KEY
+        model = Config.GEMINI_MODEL
+        if not api_key:
+            raise RuntimeError("Gemini fallback requested but GEMINI_API_KEY is not set")
+
+        url = f"https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent?key={api_key}"
+        payload = {
+            "contents": [{"parts": [{"text": (f"{system_prompt}\n\n{prompt}" if system_prompt else prompt)}]}],
+            "generationConfig": {
+                "temperature": 0.7,
+                "maxOutputTokens": 2048,
+            },
+        }
+        try:
+            response = self.session.post(url, json=payload, timeout=60)
+            response.raise_for_status()
+            result = response.json()
+            return result["candidates"][0]["content"]["parts"][0]["text"]
+        except requests.HTTPError as e:
+            if response.status_code == 429 and _retry_count < 3:
+                wait_time = 5 * (_retry_count + 1)
+                print(f"   ⏳ Gemini rate limited, waiting {wait_time}s... (retry {_retry_count + 1}/3)")
+                time.sleep(wait_time)
+                return self._generate_gemini_direct(prompt, _retry_count + 1)
+            raise RuntimeError(f"Gemini fallback error: {e} ({getattr(response, 'text', '')[:200]})")
+        except Exception as e:
+            raise RuntimeError(f"Gemini fallback error: {e}")
 
     def _generate_groq(self, prompt):
         """Generate text using Groq API (free, ultra-fast)."""
         payload = {
             "model": self.model,
             "messages": [
-                {"role": "system", "content": "You are a helpful assistant that always responds with valid JSON when asked for JSON output. Never wrap JSON in markdown code blocks."},
+                {"role": "system", "content": self.DEFAULT_SYSTEM_PROMPT},
                 {"role": "user", "content": prompt},
             ],
             "temperature": 0.7,
             "max_tokens": 2048,
-            "response_format": {"type": "json_object"},
         }
 
         try:
@@ -193,7 +246,11 @@ class LLMClient:
         last_error = None
         for attempt in range(self.MAX_RETRIES):
             try:
-                raw = self.generate(prompt)
+                if self.provider == "bytez":
+                    raw = self._generate_bytez(prompt, system_prompt=self.JSON_SYSTEM_PROMPT)
+                else:
+                    # Force JSON via prompt + system instructions where possible
+                    raw = self.generate(self.JSON_SYSTEM_PROMPT + "\n\n" + prompt)
                 cleaned = self._clean_json(raw)
                 result = json.loads(cleaned)
 

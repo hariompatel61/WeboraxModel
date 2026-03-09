@@ -6,10 +6,12 @@ Uploads videos to YouTube as Shorts with metadata, thumbnail, and scheduling.
 import os
 import pickle
 import datetime
+import json
 from google.auth.transport.requests import Request
 from google_auth_oauthlib.flow import InstalledAppFlow
 from googleapiclient.discovery import build
 from googleapiclient.http import MediaFileUpload
+from googleapiclient.errors import HttpError
 from app_config import Config
 
 
@@ -35,6 +37,7 @@ class YouTubeUploader:
         """
         creds = None
         token_path = os.path.join(Config.BASE_DIR, "youtube_token.pickle")
+        running_on_ci = os.getenv("GITHUB_ACTIONS", "").lower() == "true" or os.getenv("CI", "").lower() == "true"
 
         # Load cached token
         if os.path.exists(token_path):
@@ -46,7 +49,15 @@ class YouTubeUploader:
             if creds and creds.expired and creds.refresh_token:
                 try:
                     creds.refresh(Request())
-                except Exception:
+                except Exception as e:
+                    # On GitHub Actions we cannot do an interactive OAuth flow, so fail fast with guidance.
+                    if running_on_ci:
+                        print("\n[Error] YouTube OAuth token refresh failed on CI.")
+                        print(f"   Refresh error: {type(e).__name__}: {e}")
+                        print("   Fix: Regenerate `youtube_token.pickle` locally (with the same Client_secret.json),")
+                        print("   then base64-encode it and update the `YOUTUBE_TOKEN_B64` GitHub secret.")
+                        print("   (Most common cause is `invalid_grant` / revoked token.)\n")
+                        return False
                     creds = None
 
             if not creds:
@@ -57,6 +68,11 @@ class YouTubeUploader:
                     print(f"\n[Error] YouTube client secret file not found: {client_secret_path}")
                     print("   Download it from Google Cloud Console > APIs > Credentials")
                     print("   Save as 'client_secret.json' in the project root.\n")
+                    return False
+
+                if running_on_ci:
+                    print("\n[Error] No valid YouTube OAuth token available on CI, and interactive login is disabled.")
+                    print("   Fix: Provide a valid `youtube_token.pickle` via the `YOUTUBE_TOKEN_B64` GitHub secret.\n")
                     return False
 
                 flow = InstalledAppFlow.from_client_secrets_file(client_secret_path, SCOPES)
@@ -137,10 +153,26 @@ class YouTubeUploader:
 
         response = None
         while response is None:
-            status, response = request.next_chunk()
-            if status:
-                progress = int(status.progress() * 100)
-                print(f"   Upload progress: {progress}%")
+            try:
+                status, response = request.next_chunk()
+                if status:
+                    progress = int(status.progress() * 100)
+                    print(f"   Upload progress: {progress}%")
+            except HttpError as e:
+                # Print actionable error details (quota, invalid auth, etc.)
+                detail = ""
+                try:
+                    detail = e.content.decode("utf-8", errors="replace") if hasattr(e, "content") else str(e)
+                except Exception:
+                    detail = str(e)
+                print("\n[Error] YouTube upload failed with HttpError.")
+                print(f"   Status: {getattr(e, 'status_code', 'unknown')}")
+                print(f"   Details: {detail[:2000]}")
+                return {"error": f"YouTube upload HttpError: {detail[:300]}"}
+            except Exception as e:
+                print("\n[Error] YouTube upload failed.")
+                print(f"   Error: {type(e).__name__}: {e}")
+                return {"error": f"YouTube upload error: {type(e).__name__}: {e}"}
 
         video_id = response["id"]
         video_url = f"https://www.youtube.com/shorts/{video_id}"

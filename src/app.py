@@ -47,6 +47,26 @@ app = FastAPI()
 # Global status tracker
 status_log = ["System ready - High-Quality AI Studio"]
 
+# Fallback script for cases where LLM providers are unavailable.
+# Must match the parser's expected "Scene X" markers.
+DEFAULT_SCRIPT = """Scene 1 -- Hook
+Visual: A 3D cartoon Parliament hall where a robot is answering questions instead of ministers.
+Narrator: "Parliament debates are down, but the buffering is thriving!"
+
+Scene 2 -- Problem
+Visual: A petrol pump meter spinning like a slot machine while the common man faints.
+Modi: "This is not inflation, it's a national fitness test for wallets!"
+Rahul: "My wallet failed the test and asked for sick leave!"
+
+Scene 3 -- Punchline
+Visual: A giant 'PROMISES' vending machine that eats coins and prints only 'COMING SOON'.
+Kejriwal: "Refund policy says: check back after the next election!"
+
+Scene 4 -- Ending
+Visual: Common man holding a tiny umbrella under a rain of 'tax' papers.
+Narrator: "Public mood: update pending... restart required!"
+"""
+
 
 def safe_print(msg):
     try:
@@ -184,20 +204,40 @@ def generate_ai_image(visual_desc, scene_id, output_dir):
         for attempt in range(2):
             try:
                 safe_print(f"  [AIMLAPI] Attempt {attempt+1} for scene {scene_id}...")
+                # AIMLAPI payload formats vary by backend; try the most common schema first.
+                payload = {
+                    "model": "flux/schnell",
+                    "prompt": prompt,
+                    "n": 1,
+                    "size": "1024x1792",
+                }
                 response = http_requests.post(
                     "https://api.aimlapi.com/v1/images/generations",
                     headers={
                         "Authorization": f"Bearer {aiml_key}",
                         "Content-Type": "application/json",
                     },
-                    json={
+                    json=payload,
+                    timeout=90,
+                )
+                # If schema rejected, retry once with alternate field names.
+                if response.status_code == 400 and "Invalid payload" in response.text:
+                    payload_alt = {
                         "model": "flux/schnell",
                         "prompt": prompt,
                         "n": 1,
-                        "image_size": {"width": 1024, "height": 1792},
-                    },
-                    timeout=90,
-                )
+                        "width": 1024,
+                        "height": 1792,
+                    }
+                    response = http_requests.post(
+                        "https://api.aimlapi.com/v1/images/generations",
+                        headers={
+                            "Authorization": f"Bearer {aiml_key}",
+                            "Content-Type": "application/json",
+                        },
+                        json=payload_alt,
+                        timeout=90,
+                    )
                 if response.status_code == 200:
                     data = response.json()
                     # AIMLAPI returns URL or base64
@@ -466,6 +506,14 @@ SATIRE_ANGLES = [
     {"angle": "weather_crisis", "topic": "floods, heatwave, pollution AQI, climate denial", "visual_hint": "politician giving speech in gas mask during smog"},
 ]
 
+# Style pool to force variety across runs.
+SCRIPT_STYLES = [
+    {"style": "sarcastic_news", "instruction": "Deliver it like a sarcastic breaking-news anchor with sharp one-liners."},
+    {"style": "rhyming_poem", "instruction": "Write it as a short rhyming poem (simple end rhymes), still split into 4 scenes."},
+    {"style": "deadpan_observation", "instruction": "Write it as deadpan observational comedy with dry humor."},
+    {"style": "mock_therapy_session", "instruction": "Frame it as a mock therapy session where the country is the patient."},
+]
+
 # Global topic history instance
 _topic_history = TopicHistory()
 
@@ -496,12 +544,15 @@ def generate_satire_script():
     MAX_RETRIES = 3
     tried_angles = []
     last_error = None
+    tried_styles = []
 
     for attempt in range(MAX_RETRIES):
         now = datetime.now()
         date_str = now.strftime("%B %d, %Y (%A)")
         angle = _pick_satire_angle(exclude=tried_angles)
         tried_angles.append(angle["angle"])
+        style = random.choice([s for s in SCRIPT_STYLES if s["style"] not in tried_styles] or SCRIPT_STYLES)
+        tried_styles.append(style["style"])
         recent_topics = _topic_history.get_recent_topics(15)
         today_topics = _topic_history.get_topics_used_today()
         
@@ -516,25 +567,26 @@ def generate_satire_script():
             today_list = ", ".join(today_topics)
             avoid_section += f"\nAlready generated today: {today_list}. Pick a TOTALLY different angle."
 
-        prompt = f"""You are a top-tier Indian political satire writer for YouTube Shorts.
-Today is {date_str}. Generate a BRAND NEW, NEVER-SEEN-BEFORE comedy script.
+        prompt = f"""You are a top-tier comedy writer for YouTube Shorts.
+Today is {date_str}. Generate a BRAND NEW, NEVER-SEEN-BEFORE comedy script in ENGLISH ONLY.
 
 TODAY'S ANGLE: {angle['topic']}
 Visual inspiration: {angle['visual_hint']}
+STYLE DIRECTION: {style['instruction']}
 
-Write a VERY SHORT (30 seconds / 60-80 words) Hindi-English mix comedy script.
-Make it TOPICAL and FRESH — reference current events, trending topics, or seasonal themes for {now.strftime('%B %Y')}.
+Write a VERY SHORT (30 seconds / 70-95 words) script.
+Make it TOPICAL and FRESH — reference current events, trending topics, or seasonal themes for {now.strftime('%B %Y')}, but keep it safe and non-abusive.
 
 FORMAT - exactly 4 scenes:
 
 Scene 1 -- Hook
 Visual: [describe a funny 3D cartoon scene with Indian politicians, related to {angle['topic']}]
-Narrator: [one punchy sarcastic line in Hinglish]
+Narrator: [one punchy sarcastic line in English]
 
 Scene 2 -- Problem
 Visual: [visual gag about {angle['topic']}]
 Modi: [funny dialogue about {angle['topic']}]
-Rahul: [funny response]
+Rahul: [funny response in English]
 
 Scene 3 -- Punchline
 Visual: [unexpected visual comedy twist]
@@ -548,31 +600,36 @@ RULES:
 - MUST be completely ORIGINAL and UNIQUE — never repeat the same joke or setup
 - Keep it FUNNY and SARCASTIC
 - No hate speech, no abuse
-- Mix Hindi + English naturally (Hinglish)
-- Total spoken words: 60-80 (fits 30 seconds)
+- ENGLISH ONLY (no Hindi/Hinglish words, no transliteration)
+- Total spoken words: 70-95 (fits 30 seconds)
 - Each dialogue max 15 words
 - Make it VIRAL-worthy and SHAREABLE
-- Reference {angle['topic']} creatively{avoid_section}"""
+- Reference {angle['topic']} creatively{avoid_section}
+
+OUTPUT RULES:
+- Output plain TEXT only (no JSON, no markdown, no bullet lists)
+- Use EXACTLY the "Scene 1/2/3/4" labels and field labels shown above
+"""
 
         try:
             safe_print(f"  [SCRIPT] Attempt {attempt + 1}/{MAX_RETRIES} — angle: {angle['angle']}")
             script = llm.generate(prompt)
+            title = _extract_title_from_script(script)
+            if _topic_history.is_duplicate(title, threshold=0.55):
+                raise RuntimeError(f"Generated script seems too similar to recent topics (title='{title}'). Retrying.")
             # Log to history
-            _topic_history.add_topic(
-                title=_extract_title_from_script(script),
-                angle=angle["angle"],
-            )
+            _topic_history.add_topic(title=title, angle=angle["angle"], extra={"style": style["style"]})
             return script
         except Exception as e:
             last_error = e
-            safe_print(f"  [WARN] Script attempt {attempt + 1} failed ({angle['angle']}): {e}")
+            safe_print(f"  [WARN] Script attempt {attempt + 1} failed ({angle['angle']}/{style['style']}): {e}")
             import time as _time
             _time.sleep(2 * (attempt + 1))  # Backoff before retry
 
     # All retries exhausted — raise so pipeline reports clearly
     raise RuntimeError(
         f"Script generation failed after {MAX_RETRIES} attempts. "
-        f"Tried angles: {tried_angles}. Last error: {last_error}"
+        f"Tried angles: {tried_angles}, styles: {tried_styles}. Last error: {last_error}"
     )
 
 
@@ -589,12 +646,13 @@ def _extract_title_from_script(script_text):
 
 def generate_dynamic_metadata(script_text):
     """Generate YouTube title, description, and tags dynamically from the script content."""
-    prompt = f"""Based on this Indian political satire script, generate YouTube Shorts metadata.
+    prompt = f"""Based on this ENGLISH script, generate YouTube Shorts metadata in ENGLISH ONLY.
 
 Script:
 {script_text[:500]}
 
 Return a punchy, curiosity-driven YouTube title (max 60 chars), a short description (2-3 lines with hashtags), and relevant tags.
+Make sure the title ends with "#shorts".
 
 Return ONLY valid JSON (no markdown):
 {{
@@ -639,6 +697,7 @@ async def run_full_pipeline(script_text=None, auto_upload=True):
     status_log = ["Starting high-quality AI video pipeline..."]
     
     Config.ensure_directories()
+    result_summary = {"video_path": None, "upload": None, "error": None}
     
     # --- Step 1: Get Script ---
     if not script_text or len(script_text.strip()) < 50:
@@ -656,7 +715,8 @@ async def run_full_pipeline(script_text=None, auto_upload=True):
     scenes = parse_script(script_text)
     if not scenes:
         status_log.append("ERROR: Failed to parse script.")
-        return
+        result_summary["error"] = "Failed to parse script"
+        return result_summary
 
     status_log.append(f"Parsed {len(scenes)} scenes successfully!")
     
@@ -710,14 +770,17 @@ async def run_full_pipeline(script_text=None, auto_upload=True):
         if result and os.path.exists(result):
             file_size = os.path.getsize(result) / (1024 * 1024)
             status_log.append(f"Video ready! ({file_size:.1f} MB)")
+            result_summary["video_path"] = result
         else:
             status_log.append("FAILED: Video assembly returned no output.")
-            return
+            result_summary["error"] = "Video assembly returned no output"
+            return result_summary
     except Exception as e:
         safe_print(f"ERROR assembling video: {e}")
         traceback.print_exc()
         status_log.append(f"FAILED during assembly: {str(e)[:100]}")
-        return
+        result_summary["error"] = f"Assembly error: {e}"
+        return result_summary
 
     # --- Step 4: YouTube Upload ---
     if auto_upload:
@@ -730,9 +793,11 @@ async def run_full_pipeline(script_text=None, auto_upload=True):
             
             status_log.append(f"Uploading to YouTube: {title}")
             upload_result = upload_to_youtube(final_video, title, description, tags)
+            result_summary["upload"] = upload_result
             
             if "error" in upload_result:
                 status_log.append(f"YouTube upload failed: {upload_result['error']}")
+                result_summary["error"] = upload_result["error"]
             else:
                 video_url = upload_result.get("url", "")
                 status_log.append(f"Uploaded to YouTube! URL: {video_url}")
@@ -740,8 +805,10 @@ async def run_full_pipeline(script_text=None, auto_upload=True):
             safe_print(f"ERROR YouTube upload: {e}")
             traceback.print_exc()
             status_log.append(f"YouTube upload error: {str(e)[:100]}")
+            result_summary["error"] = f"YouTube upload exception: {e}"
     
     status_log.append("Pipeline complete!")
+    return result_summary
 
 
 # ================================================================
