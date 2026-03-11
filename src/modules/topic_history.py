@@ -43,19 +43,21 @@ class TopicHistory:
         with open(self.filepath, "w", encoding="utf-8") as f:
             json.dump(self._history, f, indent=2, ensure_ascii=False)
 
-    def add_topic(self, title, angle=None, extra=None):
-        """Record a generated topic.
+    def add_topic(self, title, angle=None, extra=None, performance_score=0):
+        """Record a generated topic with performance score.
 
         Args:
             title: The script/video title.
             angle: The satire angle used (e.g., 'inflation', 'education').
             extra: Optional dict of additional metadata.
+            performance_score: Default zero, to be updated after upload/tracking.
         """
         entry = {
-            "title": title,
+            "topic": title,
             "angle": angle or "",
-            "date": datetime.now().strftime("%Y-%m-%d"),
+            "date_used": datetime.now().strftime("%Y-%m-%d"),
             "time": datetime.now().strftime("%H:%M:%S"),
+            "performance_score": performance_score
         }
         if extra:
             entry.update(extra)
@@ -68,7 +70,7 @@ class TopicHistory:
         Returns:
             list[str]: Recent topic titles.
         """
-        return [e.get("title", "") for e in self._history[-n:]]
+        return [e.get("topic", "") for e in self._history[-n:]]
 
     def get_recent_angles(self, n=10):
         """Get the last N satire angles used.
@@ -111,7 +113,7 @@ class TopicHistory:
             list[str]: Titles generated today.
         """
         today = datetime.now().strftime("%Y-%m-%d")
-        return [e.get("title", "") for e in self._history if e.get("date") == today]
+        return [e.get("topic", "") for e in self._history if e.get("date_used") == today]
 
     @staticmethod
     def _normalize(text):

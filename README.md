@@ -1,70 +1,49 @@
-# Local AI Video Generation Studio
+# Weborax Model
 
-This project enables a fully local AI video generation pipeline using Ollama, Stable Diffusion, Bark, and FFmpeg.
+This repository contains two Python tools:
 
-## Prerequisites
+1. An AI video generation studio for creating Shorts-style videos with LLM-written scripts, generated images, voiceover, music, and optional YouTube upload.
+2. A website cloner that mirrors a public site into static local files.
 
-### 1. Hardware
-- **GPU**: NVIDIA GPU (6GB VRAM minimum, 12GB recommended).
-- **RAM**: 16GB+.
-- **OS**: Windows 10/11 or Linux.
+## Setup
 
-### 2. Software
-- [Python 3.10+](https://www.python.org/)
-- [Git](https://git-scm.com/)
-- [FFmpeg](https://ffmpeg.org/download.html) (Ensure it's in your system PATH)
-
-## Installation Steps
-
-### Step 1: Text Generation (Ollama)
-1. Download and install Ollama from [ollama.com](https://ollama.com/).
-2. Pull the Mistral model:
-   ```bash
-   ollama pull mistral
-   ```
-3. Start the Ollama server:
-   ```bash
-   ollama serve
-   ```
-
-### Step 2: Image Generation (Stable Diffusion)
-1. Clone the WebUI:
-   ```bash
-   git clone https://github.com/AUTOMATIC1111/stable-diffusion-webui.git
-   ```
-2. Run `webui-user.bat` to install dependencies and start the UI.
-3. Enable API: Edit `webui-user.bat` and add `--api` to `COMMANDLINE_ARGS`.
-   ```batch
-   set COMMANDLINE_ARGS=--api
-   ```
-4. Install **AnimateDiff Extension**:
-   - Open WebUI -> Extensions -> Install from URL.
-   - URL: `https://github.com/continue-revolution/sd-webui-animatediff`
-   - Restart WebUI.
-
-### Step 3: Python Environment
-1. Create a virtual environment:
-   ```bash
-   python -m venv venv
-   venv\Scripts\activate
-   ```
-2. Install dependencies:
-   ```bash
-   pip install -r requirements.txt
-   ```
-
-## Folder Structure
-- `src/`: Python source code for orchestration.
-- `outputs/`: All generated assets.
-- `requirements.txt`: Python package list.
-
-## Usage
-Run the master script:
 ```bash
-python src/main.py
+python -m venv .venv
+.venv\Scripts\activate
+pip install -r requirements.txt
 ```
 
-## Hardware Optimization Tips
-- **Low VRAM**: Use `--medvram` or `--lowvram` in Stable Diffusion `COMMANDLINE_ARGS`.
-- **Bark Speed**: Bark is heavy; use `SMALL_MODELS=True` environment variable for faster (lower quality) generation on weak GPUs.
-- **FFmpeg**: Use hardware acceleration (e.g., `-c:v h264_nvenc`) if available.
+Make sure `ffmpeg` is available on your system path for video rendering.
+
+## AI Video Studio
+
+Primary entry points:
+
+- `python src/main.py`
+- `python src/app.py`
+- `python scheduler.py --test`
+- `python run_bot.py`
+
+Environment variables are loaded from `.env`. Common settings include:
+
+- `LLM_PROVIDER`
+- `BYTEZ_API_KEY`
+- `GEMINI_API_KEY`
+- `AIMLAPI_KEY`
+- `CHATGPT_IMAGE_API_KEY`
+- `VIDEO_DURATION`
+- `YOUTUBE_CLIENT_SECRET_FILE`
+
+Generated files are written under `outputs/`.
+
+## Website Cloner
+
+```bash
+python clone_site.py https://imageconverttools.site --output cloned_site --max-pages 400
+```
+
+Notes:
+
+- Only public pages and same-domain assets are cloned.
+- JavaScript-heavy pages may need browser automation instead of plain HTTP scraping.
+- Respect robots, rate limits, and the target site's terms before using it.

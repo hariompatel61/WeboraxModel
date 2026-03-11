@@ -9,7 +9,7 @@ import requests
 import random
 from urllib.parse import quote
 from concurrent.futures import ThreadPoolExecutor, as_completed
-from config import Config
+from app_config import Config
 
 
 class AISceneGenerator:
@@ -23,36 +23,29 @@ class AISceneGenerator:
         # API format: https://pollinations.ai/p/{prompt}?width={w}&height={h}&model={model}&seed={seed}
 
     def generate_scene_image(self, scene, scene_index, output_dir):
-        """Generate a single scene image using AI."""
+        """Generate a single scene image using AI based on visual prompt."""
         
-        # Construct the prompt
-        description = scene.get("description", "A funny cartoon scene")
-        characters = ", ".join(scene.get("characters_present", ["cartoon character"]))
-        
-        # Get dominant expression
-        expressions = scene.get("expressions", {})
-        expression = "neutral"
-        if expressions:
-            expression = list(expressions.values())[0]
+        # Get the rich visual prompt directly from the scene configuration
+        prompt = scene.get("visual_prompt", "ultra cinematic, dark and moody documentary scene, 8k resolution")
 
-        camera = scene.get("camera_angle", "cinematic shot")
-        
-        prompt = Config.SCENE_PROMPT_TEMPLATE.format(
-            scene_description=description,
-            characters=characters,
-            expression=expression,
-            camera_angle=camera
-        )
+        # Basic fallback enrichment if the prompt is missing
+        if "visual_prompt" not in scene:
+            description = scene.get("description", "cinematic storytelling scene")
+            prompt = f"highly detailed, beautiful cinematography, dramatic lighting, depth of field, {description}"
+
+        print(f"     🎨 Generating Scene {scene_index} | Prompt: {prompt[:50]}...")
 
         # Optimize prompt for URL
+        from urllib.parse import quote
         encoded_prompt = quote(prompt)
+        import random
         seed = random.randint(1000, 999999)
         
         # Use image.pollinations.ai for direct image file
         url = (
             f"https://image.pollinations.ai/prompt/{encoded_prompt}"
             f"?width={self.width}&height={self.height}"
-            f"&model={self.model}&seed={seed}&nologo=true"
+            f"&model={self.model}&seed={seed}&nologo=true&enhance=true"
         )
 
         return self._download_image(url, scene_index, output_dir, scene)

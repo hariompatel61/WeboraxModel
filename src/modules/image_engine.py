@@ -13,7 +13,7 @@ import random
 import time
 from urllib.parse import quote
 from PIL import Image, ImageDraw
-from config import Config
+from app_config import Config
 from modules.scene_generator import SceneGenerator
 
 class ImageEngine:
@@ -24,21 +24,15 @@ class ImageEngine:
         self.gemini_key = Config.GEMINI_IMAGEN_API_KEY
 
     def generate_cinematic_image(self, scene, scene_index, output_dir, is_hero=False):
-        """Generate a cinematic image based on scene details and hero status."""
+        """Generate a cinematic image based on scene visual prompt and hero status."""
         
-        # Build the prompt based on storyboard attributes
-        prompt_data = {
-            "shot_type": scene.get("shot_type", "Cinematic shot"),
-            "camera_angle": scene.get("camera_angle", "eye level"),
-            "environment": scene.get("environment", "natural setting"),
-            "lighting": scene.get("lighting", "natural lighting"),
-            "motion": scene.get("motion", "static"),
-            "mood": scene.get("mood", "calm"),
-            "color_grading": scene.get("color_grading", "natural colors")
-        }
+        # Build the prompt based on storyboard visual_prompt directly
+        full_prompt = scene.get("visual_prompt", "ultra cinematic, dark and moody documentary scene, 8k resolution, photorealistic")
         
-        full_prompt = Config.CINEMATIC_SCENE_PROMPT.format(**prompt_data)
-        
+        # Add basic fallback enhancements if needed
+        if "depth of field" not in full_prompt.lower():
+            full_prompt += ", depth of field, cinematic lighting"
+            
         os.makedirs(output_dir, exist_ok=True)
         filename = f"scene_{scene_index:02d}.jpg"
         filepath = os.path.join(output_dir, filename)

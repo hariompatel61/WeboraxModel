@@ -10,7 +10,7 @@ import math
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from PIL import Image, ImageDraw, ImageFont, ImageFilter
 import numpy as np
-from config import Config
+from app_config import Config
 
 
 class SceneGenerator:

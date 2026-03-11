@@ -5,53 +5,51 @@ Generates viral titles, descriptions, tags, and hashtags using Gemini API.
 
 import json
 from modules.llm_client import LLMClient
-from config import Config
+from app_config import Config
 
 
 class SEOMetadataGenerator:
-    """Generates SEO-optimized YouTube metadata for comedy shorts."""
+    """Generates SEO-optimized YouTube metadata for high retention Shorts and videos."""
 
-    PROMPT_TEMPLATE = """You are a YouTube SEO expert specializing in high-retention cinematic documentaries.
+    PROMPT_TEMPLATE = """You are a master YouTube SEO expert specialized in going viral.
 
-Generate SEO-optimized metadata for this cinematic AI documentary:
+Generate SEO-optimized metadata for this AI documentary video:
 
-TOPIC: {title}
+TOPIC / TRENDING FOCUS: {topic}
 PREMISE: {premise}
 SCRIPT HOOK: {hook}
 
-Provide:
-1. title - Viral, curiosity-driven, max 60 characters. Netflix-style documentary title.
-2. description - 150-200 words with keywords naturally included. Use a professional, intrigue-based tone. Add 5 high-reach hashtags at the end.
-3. tags - 15-20 relevant tags for documentary and AI film search (cinematic, documentary, history, science, AI art, etc.)
-4. hashtags - Top 8 hashtags for maximum reach.
+Rules:
+1. title - Must be highly clickable, curiosity-driven (e.g., "Nobody Talks About This... But It Changes Everything"). Max 60 characters. NO clickbait context that the video doesn't answer.
+2. description - 150-200 words using "keyword clustering". Include long-tail keywords naturally. Add 5 high-reach hashtags at the end.
+3. tags - 15-20 highly relevant long-tail and broad tags.
+4. hashtags - Top 8 trending hashtags.
 
 Return ONLY valid JSON (no markdown):
 {{
-  "title": "Your cinematic title here",
-  "description": "Intriguing documentary description...",
-  "tags": ["tag1", "tag2", "tag3"],
-  "hashtags": ["#Cinematic", "#Documentary", "#AIFilm"]
+  "title": "Your curiosity-driven cinematic title",
+  "description": "Engaging, clustered description...",
+  "tags": ["tag1", "tag2", "long tail tag"],
+  "hashtags": ["#Cinematic", "#Documentary", "#Trending"]
 }}
 """
 
     def __init__(self):
         self.client = LLMClient()
 
-
-
     def generate_metadata(self, topic, script):
         """Generate SEO metadata for the video.
 
         Args:
-            topic: dict with 'title' and 'premise'.
+            topic: dict with 'topic', 'title', and 'premise'.
             script: dict with 'hook'.
 
         Returns:
             dict: With 'title', 'description', 'tags', 'hashtags'.
         """
         prompt = self.PROMPT_TEMPLATE.format(
-            title=topic.get("title", "Funny Cartoon"),
-            premise=topic.get("premise", "A funny situation"),
+            topic=topic.get("topic", topic.get("title", "Mystery History")),
+            premise=topic.get("premise", "A gripping story"),
             hook=script.get("hook", "Wait for it..."),
         )
 

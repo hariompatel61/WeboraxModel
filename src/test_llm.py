@@ -5,7 +5,7 @@ import os
 sys.path.append(os.path.join(os.getcwd(), 'src'))
 
 try:
-    from config import Config
+    from app_config import Config
     from modules.llm_client import LLMClient
     
     print("Initializing LLMClient...")

@@ -9,7 +9,7 @@ import math
 import random
 import numpy as np
 from PIL import Image, ImageDraw, ImageFont, ImageFilter
-from config import Config
+from app_config import Config
 
 
 class ThumbnailGenerator:
@@ -81,6 +81,45 @@ class ThumbnailGenerator:
         os.makedirs(os.path.dirname(output_path), exist_ok=True)
         img.save(output_path, "PNG", optimize=True)
         return output_path
+
+    def generate_thumbnail_metadata(self, topic, script):
+        """Build thumbnail text and expression from topic/script data."""
+        raw_title = topic.get("title") or topic.get("topic") or script.get("hook", "Watch This")
+        words = str(raw_title).replace("#shorts", "").split()
+        short_title = " ".join(words[:4]) or "Watch This"
+
+        hook = str(script.get("hook", "")).lower()
+        expression = "surprised"
+        if any(word in hook for word in ["angry", "rage", "furious"]):
+            expression = "angry"
+        elif any(word in hook for word in ["laugh", "funny", "joke"]):
+            expression = "laughing"
+        elif any(word in hook for word in ["sad", "cry", "loss"]):
+            expression = "confused"
+
+        return {
+            "title": short_title,
+            "expression": expression,
+        }
+
+    def create_thumbnail(self, thumbnail_data, output_dir=None):
+        """Compatibility wrapper used by the main pipeline."""
+        if isinstance(thumbnail_data, dict):
+            title = thumbnail_data.get("title", "Watch This")
+            expression = thumbnail_data.get("expression", "surprised")
+        else:
+            title = str(thumbnail_data)
+            expression = "surprised"
+
+        if output_dir:
+            if os.path.isdir(output_dir):
+                output_path = os.path.join(output_dir, "thumbnail.png")
+            else:
+                output_path = output_dir
+        else:
+            output_path = Config.THUMBNAIL_PATH
+
+        return self.generate_thumbnail(title=title, expression=expression, output_path=output_path)
 
     def _create_gradient_bg_fast(self, scheme):
         """Create gradient background using numpy (replaces per-line drawing)."""

@@ -3,20 +3,22 @@ Excel Tracker: Records content details and video links for each pipeline run.
 Maintains a content_log.xlsx file for tracking all generated content.
 """
 
-import os
 import datetime
-from config import Config
+import os
+
+from app_config import Config
 
 try:
     from openpyxl import Workbook, load_workbook
-    from openpyxl.styles import Font, Alignment, PatternFill, Border, Side
+    from openpyxl.styles import Alignment, Border, Font, PatternFill, Side
+
     OPENPYXL_AVAILABLE = True
 except ImportError:
     OPENPYXL_AVAILABLE = False
 
 
 class ExcelTracker:
-    """Tracks all pipeline runs in an Excel spreadsheet."""
+    """Track pipeline runs in an Excel spreadsheet."""
 
     HEADERS = [
         "Sr. No",
@@ -33,18 +35,25 @@ class ExcelTracker:
     ]
 
     def __init__(self, filepath=None):
-        if filepath is None:
-            self.filepath = os.path.join(Config.BASE_DIR, "content_log.xlsx")
-        else:
-            self.filepath = filepath
+        self.filepath = filepath or os.path.join(Config.OUTPUT_DIR, "content_log.xlsx")
+        self._ensure_workbook()
 
-    def _create_workbook(self):
-        """Create a new workbook with formatted headers."""
+    def _ensure_workbook(self):
+        """Create the workbook with headers if it does not exist."""
+        if not OPENPYXL_AVAILABLE:
+            print("   Warning: openpyxl not installed. Cannot create/log to Excel.")
+            print("   Run: pip install openpyxl")
+            return
+
+        if os.path.exists(self.filepath):
+            return
+
+        os.makedirs(os.path.dirname(self.filepath), exist_ok=True)
         wb = Workbook()
         ws = wb.active
         ws.title = "Content Log"
+        ws.append(self.HEADERS)
 
-        # Style the header row
         header_font = Font(name="Arial", bold=True, size=12, color="FFFFFF")
         header_fill = PatternFill(start_color="4472C4", end_color="4472C4", fill_type="solid")
         header_align = Alignment(horizontal="center", vertical="center", wrap_text=True)
@@ -55,86 +64,69 @@ class ExcelTracker:
             bottom=Side(style="thin"),
         )
 
-        for col_idx, header in enumerate(self.HEADERS, 1):
-            cell = ws.cell(row=1, column=col_idx, value=header)
+        for col_num in range(1, len(self.HEADERS) + 1):
+            cell = ws.cell(row=1, column=col_num)
             cell.font = header_font
             cell.fill = header_fill
             cell.alignment = header_align
             cell.border = thin_border
 
-        # Set column widths
         widths = [8, 22, 20, 25, 18, 40, 30, 25, 40, 45, 12]
-        for i, w in enumerate(widths, 1):
-            ws.column_dimensions[ws.cell(row=1, column=i).column_letter].width = w
+        for col_num, width in enumerate(widths, 1):
+            ws.column_dimensions[ws.cell(row=1, column=col_num).column_letter].width = width
 
-        # Freeze the header row
         ws.freeze_panes = "A2"
+        wb.save(self.filepath)
+        print(f"   Created new Excel log: {self.filepath}")
 
-        return wb
-
-    def log_run(self, run_id, topic=None, script=None, video_path=None,
-                upload_result=None, status="Completed"):
-        """Log a pipeline run to the Excel file.
-
-        Args:
-            run_id: The run folder name (e.g., 'run_20260218_153533').
-            topic: dict with topic info (title, category, premise).
-            script: dict with script info (hook, characters).
-            video_path: Path to the final video file.
-            upload_result: dict with YouTube upload result (url, video_id).
-            status: Run status ('Completed', 'Failed', 'Partial').
-        """
+    def log_run(
+        self,
+        topic_data=None,
+        script_data=None,
+        video_path=None,
+        yt_link=None,
+        upload_result=None,
+        status="Completed",
+        run_id=None,
+        topic=None,
+        script=None,
+    ):
+        """Log a pipeline run to the tracker file."""
         if not OPENPYXL_AVAILABLE:
-            print("   ⚠️  openpyxl not installed. Cannot log to Excel.")
+            print("   Warning: openpyxl not installed. Cannot log to Excel.")
             print("   Run: pip install openpyxl")
-            return
+            return None
 
-        # Load or create workbook
-        if os.path.exists(self.filepath):
-            wb = load_workbook(self.filepath)
-            ws = wb.active
-        else:
-            wb = self._create_workbook()
-            ws = wb.active
-
-        # Determine row number (Sr. No)
+        self._ensure_workbook()
+        wb = load_workbook(self.filepath)
+        ws = wb.active
         next_row = ws.max_row + 1
-        sr_no = next_row - 1  # minus header
 
-        # Extract data from inputs
-        topic = topic or {}
-        script = script or {}
+        topic_data = topic_data or topic or {}
+        script_data = script_data or script or {}
         upload_result = upload_result or {}
+        if not yt_link:
+            yt_link = upload_result.get("url", "")
 
-        title = topic.get("title", "N/A")
-        category = topic.get("category", "N/A")
-        premise = topic.get("premise", "N/A")
-        hook = script.get("hook", "N/A")
-        characters = ", ".join(script.get("characters", []))
-        youtube_link = upload_result.get("url", "Not uploaded")
-        now = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        characters = topic_data.get("characters", [])
+        if isinstance(characters, (list, tuple)):
+            characters = ", ".join(str(char) for char in characters)
 
-        # Check if video exists
-        if video_path and os.path.exists(video_path):
-            video_status = video_path
-        else:
-            video_status = video_path or "Not generated"
-
+        run_id = run_id or f"run_{datetime.datetime.now().strftime('%Y%m%d_%H%M%S')}"
         row_data = [
-            sr_no,
+            next_row - 1,
             run_id,
-            now,
-            title,
-            category,
-            premise,
-            hook,
+            datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+            topic_data.get("title", topic_data.get("topic", "")),
+            topic_data.get("category", ""),
+            topic_data.get("premise", ""),
+            script_data.get("hook", ""),
             characters,
-            video_status,
-            youtube_link,
+            video_path or "",
+            yt_link or "",
             status,
         ]
 
-        # Style for data rows
         data_align = Alignment(vertical="center", wrap_text=True)
         thin_border = Border(
             left=Side(style="thin"),
@@ -142,24 +134,20 @@ class ExcelTracker:
             top=Side(style="thin"),
             bottom=Side(style="thin"),
         )
-
-        # Color code status
         status_colors = {
             "Completed": "C6EFCE",
             "Failed": "FFC7CE",
             "Partial": "FFEB9C",
         }
 
-        for col_idx, value in enumerate(row_data, 1):
-            cell = ws.cell(row=next_row, column=col_idx, value=value)
+        for col_num, value in enumerate(row_data, 1):
+            cell = ws.cell(row=next_row, column=col_num, value=value)
             cell.alignment = data_align
             cell.border = thin_border
-
-            # Apply status color
-            if col_idx == len(self.HEADERS):  # Status column
-                fill_color = status_colors.get(status, "FFFFFF")
-                cell.fill = PatternFill(start_color=fill_color, end_color=fill_color, fill_type="solid")
+            if col_num == len(self.HEADERS):
+                fill = status_colors.get(status, "FFFFFF")
+                cell.fill = PatternFill(start_color=fill, end_color=fill, fill_type="solid")
 
         wb.save(self.filepath)
-        print(f"   📊 Logged to Excel: {self.filepath}")
+        print(f"   Logged to Excel: {self.filepath}")
         return self.filepath

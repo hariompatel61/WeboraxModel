@@ -33,12 +33,23 @@ class Config:
     # ---- Paths ----
     BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
     OUTPUT_DIR = os.path.join(BASE_DIR, "outputs")
+    IMAGE_DIR = os.path.join(OUTPUT_DIR, "images")
+    AUDIO_DIR = os.path.join(OUTPUT_DIR, "audio")
+    VIDEO_DIR = os.path.join(OUTPUT_DIR, "video")
+    SCRIPT_DIR = os.path.join(OUTPUT_DIR, "scripts")
+    VOICEOVER_DIR = os.path.join(OUTPUT_DIR, "voiceovers")
+    LOG_DIR = os.path.join(OUTPUT_DIR, "logs")
+    MUSIC_DIR = os.path.join(OUTPUT_DIR, "music")
+    SFX_DIR = os.path.join(OUTPUT_DIR, "sfx")
+    THUMBNAIL_PATH = os.path.join(OUTPUT_DIR, "thumbnail.png")
 
     # ---- Video Settings ----
     VIDEO_WIDTH = int(os.getenv("VIDEO_WIDTH", "1080"))
     VIDEO_HEIGHT = int(os.getenv("VIDEO_HEIGHT", "1920"))
     VIDEO_FPS = int(os.getenv("VIDEO_FPS", "24"))
     VIDEO_DURATION = int(os.getenv("VIDEO_DURATION", "30"))
+    VIDEO_DURATION_MIN = int(os.getenv("VIDEO_DURATION_MIN", "30"))
+    VIDEO_DURATION_MAX = int(os.getenv("VIDEO_DURATION_MAX", "300"))
 
     # ---- Voice Settings (edge-tts) ----
     NARRATOR_VOICE = os.getenv("NARRATOR_VOICE", "en-US-GuyNeural")
@@ -49,6 +60,7 @@ class Config:
     CHATGPT_IMAGE_API_KEY = os.getenv("CHATGPT_IMAGE_API_KEY", "")
     GEMINI_IMAGEN_API_KEY = os.getenv("GEMINI_IMAGEN_API_KEY", "")
     AIMLAPI_KEY = os.getenv("AIMLAPI_KEY", "")
+    POLLINATIONS_MODEL = os.getenv("POLLINATIONS_MODEL", "flux")
 
     # ---- YouTube Upload ----
     YOUTUBE_CLIENT_SECRET_FILE = os.getenv("YOUTUBE_CLIENT_SECRET_FILE", "Client_secret.json")
@@ -57,8 +69,62 @@ class Config:
     PLAYLIST_ID = os.getenv("PLAYLIST_ID", "")
     SCHEDULE_TIME = os.getenv("SCHEDULE_TIME", "")
 
+    # ---- Trending & Virality ----
+    TRENDING_SOURCES = ["youtube", "google_trends", "reddit", "twitter"]
+    VIRALITY_THRESHOLD = int(os.getenv("VIRALITY_THRESHOLD", "8"))
+    TOPIC_CATEGORIES = [
+        "creepy mysteries", "mind-bending science", "bizarre history",
+        "futuristic technology", "untold true crime", "internet rabbit holes"
+    ]
+
+    @classmethod
+    def get_duration_settings(cls, duration):
+        """Return normalized script and storyboard settings for a target duration."""
+        duration = int(max(cls.VIDEO_DURATION_MIN, min(cls.VIDEO_DURATION_MAX, duration)))
+
+        if duration <= 60:
+            return {
+                "duration": duration,
+                "min_words": 70,
+                "max_words": 110,
+                "min_scenes": 4,
+                "max_scenes": 6,
+            }
+        if duration <= 120:
+            return {
+                "duration": duration,
+                "min_words": 120,
+                "max_words": 180,
+                "min_scenes": 6,
+                "max_scenes": 10,
+            }
+        if duration <= 180:
+            return {
+                "duration": duration,
+                "min_words": 180,
+                "max_words": 260,
+                "min_scenes": 8,
+                "max_scenes": 14,
+            }
+        return {
+            "duration": duration,
+            "min_words": 260,
+            "max_words": 420,
+            "min_scenes": 10,
+            "max_scenes": 18,
+        }
+
     @classmethod
     def ensure_directories(cls):
-        os.makedirs(cls.OUTPUT_DIR, exist_ok=True)
-        for sub in ["images", "audio", "video", "scripts", "voiceovers"]:
-            os.makedirs(os.path.join(cls.OUTPUT_DIR, sub), exist_ok=True)
+        for path in [
+            cls.OUTPUT_DIR,
+            cls.IMAGE_DIR,
+            cls.AUDIO_DIR,
+            cls.VIDEO_DIR,
+            cls.SCRIPT_DIR,
+            cls.VOICEOVER_DIR,
+            cls.LOG_DIR,
+            cls.MUSIC_DIR,
+            cls.SFX_DIR,
+        ]:
+            os.makedirs(path, exist_ok=True)

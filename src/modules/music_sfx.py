@@ -10,7 +10,7 @@ import struct
 import wave
 import random
 from concurrent.futures import ThreadPoolExecutor
-from config import Config
+from app_config import Config
 
 import numpy as np
 
@@ -145,6 +145,17 @@ class MusicSFXManager:
 
         self._save_wav(bgm, output_path)
         return output_path
+
+    def generate_background_music(self, output_dir=None, mood="light", duration_seconds=None):
+        """Compatibility wrapper for the main pipeline."""
+        base_dir = output_dir or Config.OUTPUT_DIR
+        if os.path.isdir(base_dir):
+            output_path = os.path.join(base_dir, "music", f"{mood}_bgm.wav")
+        else:
+            output_path = base_dir
+
+        target_seconds = duration_seconds or Config.VIDEO_DURATION
+        return self.generate_comedy_bgm(duration_ms=int(target_seconds * 1000), output_path=output_path)
 
     # ── Sound Effects ─────────────────────────────────────────
 

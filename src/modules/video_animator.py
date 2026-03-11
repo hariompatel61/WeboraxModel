@@ -9,7 +9,7 @@ import os
 import requests
 import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
-from config import Config
+from app_config import Config
 
 class VideoAnimator:
     """Orchestrates image-to-video animation via Z.ai."""
