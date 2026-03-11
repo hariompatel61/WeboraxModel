@@ -514,6 +514,24 @@ SCRIPT_STYLES = [
     {"style": "mock_therapy_session", "instruction": "Frame it as a mock therapy session where the country is the patient."},
 ]
 
+SATIRE_SETTINGS = [
+    {"name": "parliament_breakdown", "instruction": "Set the comedy inside a chaotic Parliament-style debate with visual absurdity."},
+    {"name": "newsroom_meltdown", "instruction": "Frame the scenes like a TV news special spiraling out of control."},
+    {"name": "press_conference", "instruction": "Use a press conference setup where every answer makes things funnier."},
+    {"name": "family_living_room", "instruction": "Show the issue from the perspective of a household reacting in real time."},
+    {"name": "game_show", "instruction": "Present the issue like a flashy reality-show or game-show challenge."},
+    {"name": "war_room", "instruction": "Stage the scenes like a secret strategy room filled with overconfident plans."},
+]
+
+COMEDY_DEVICES = [
+    {"name": "role_reversal", "instruction": "Use role reversal where the system or object behaves smarter than the humans."},
+    {"name": "absurd_escalation", "instruction": "Escalate the premise into something absurd by Scene 3."},
+    {"name": "bureaucratic_chaos", "instruction": "Turn the issue into a joke about paperwork, dashboards, or endless approvals."},
+    {"name": "public_revenge", "instruction": "Make the common person or audience reaction the sharpest punchline."},
+    {"name": "tech_glitch", "instruction": "Treat the whole issue like a software bug, outage, or broken product launch."},
+    {"name": "overconfident_spin", "instruction": "Make each character deliver comically overconfident spin on a clearly bad situation."},
+]
+
 # Global topic history instance
 _topic_history = TopicHistory()
 
@@ -535,7 +553,7 @@ def _pick_satire_angle(exclude=None):
     return random.choice(available)
 
 
-def generate_satire_script():
+def _legacy_generate_satire_script():
     """Generate a unique 30-second political satire script using the configured LLM.
     
     Always generates fresh content via LLM — no hardcoded scripts.
@@ -642,6 +660,295 @@ def _extract_title_from_script(script_text):
     # Fallback: use first 80 chars
     clean = re.sub(r'[\*#_\-=]', '', script_text).strip()
     return clean[:80] if clean else f"Script {datetime.now().strftime('%Y%m%d_%H%M')}"
+
+
+def _pick_satire_angle_fresh(exclude=None):
+    """Pick a satire angle while avoiding recently used ones."""
+    recent_angles = _topic_history.get_recent_angles(14)
+    blocked = set(recent_angles)
+    if exclude:
+        blocked.update(exclude)
+    available = [angle for angle in SATIRE_ANGLES if angle["angle"] not in blocked]
+    return random.choice(available or SATIRE_ANGLES)
+
+
+def _pick_rotating_option(pool, key, history_field, exclude=None):
+    """Pick a rotating option while avoiding recently used values."""
+    recent = set(_topic_history.get_recent_values(history_field, 10))
+    blocked = set(exclude or [])
+    available = [item for item in pool if item.get(key) not in recent and item.get(key) not in blocked]
+    return random.choice(available or pool)
+
+
+def _build_recent_uniqueness_block():
+    """Build a memory block of recent content to avoid repeating."""
+    recent_titles = _topic_history.get_recent_topics(12)
+    recent_hooks = _topic_history.get_recent_values("hook", 12)
+    recent_topic_seeds = _topic_history.get_recent_values("topic_seed", 10)
+    blocks = []
+
+    if recent_titles:
+        blocks.append(
+            "Do not repeat or lightly remix these recent titles/topics:\n"
+            + "\n".join(f"- {title}" for title in recent_titles)
+        )
+    if recent_hooks:
+        blocks.append(
+            "Do not reuse these recent opening hooks:\n"
+            + "\n".join(f"- {hook}" for hook in recent_hooks)
+        )
+    if recent_topic_seeds:
+        blocks.append(
+            "Avoid these recently used topic setups:\n"
+            + "\n".join(f"- {seed}" for seed in recent_topic_seeds)
+        )
+
+    return "\n\n".join(blocks)
+
+
+def _extract_hook_from_script(script_text):
+    """Extract the first narrated hook line from a script."""
+    match = re.search(
+        r'Scene\s*1[^\n]*\n.*?Narrator[^:]*:\s*["\u201c]?([^"\u201d\n]{8,120})',
+        script_text,
+        re.DOTALL,
+    )
+    if match:
+        return match.group(1).strip()
+    return _extract_title_from_script(script_text)
+
+
+def _build_script_signature(script_text):
+    """Create a normalized signature for duplicate detection."""
+    lowered = script_text.lower()
+    lowered = re.sub(r"scene\s*\d+[^\n]*", " ", lowered)
+    lowered = re.sub(r"visual\s*:", " ", lowered)
+    lowered = re.sub(r"(narrator|modi|rahul|kejriwal|yogi|shah|amit|common man|character 1|character 2)\s*:", " ", lowered)
+    lowered = re.sub(r"[^a-z0-9\s]", " ", lowered)
+    return re.sub(r"\s+", " ", lowered).strip()
+
+
+def _script_is_fresh(title, hook, signature, topic_seed=""):
+    """Validate that a script is materially different from recent generations."""
+    if _topic_history.is_duplicate(title, threshold=0.5):
+        return False, f"Title is too similar to a recent script: {title}"
+    if _topic_history.is_similar_to_recent(hook, field="hook", threshold=0.52, limit=25):
+        return False, "Hook is too similar to a recent script."
+    if _topic_history.is_similar_to_recent(signature, field="script_signature", threshold=0.65, limit=25):
+        return False, "Script body is too similar to a recent script."
+    if topic_seed and _topic_history.is_similar_to_recent(topic_seed, field="topic_seed", threshold=0.7, limit=20):
+        return False, "Topic setup was used recently."
+    return True, ""
+
+
+def _record_generated_script(title, angle, hook, style, topic_seed, script_signature, extra=None):
+    """Persist successful generations for future uniqueness checks."""
+    payload = {
+        "hook": hook,
+        "style": style,
+        "topic_seed": topic_seed,
+        "script_signature": script_signature,
+    }
+    if extra:
+        payload.update(extra)
+    _topic_history.add_topic(title=title, angle=angle, extra=payload)
+
+
+def generate_prompted_script(user_prompt):
+    """Generate a fresh script for a user-provided theme."""
+    user_prompt = (user_prompt or "").strip()
+    if not user_prompt:
+        return generate_satire_script()
+
+    uniqueness_block = _build_recent_uniqueness_block()
+    tried_styles = []
+    tried_seeds = []
+    last_error = None
+
+    for attempt in range(6):
+        style = _pick_rotating_option(SCRIPT_STYLES, "style", "style", exclude=tried_styles)
+        setting = _pick_rotating_option(SATIRE_SETTINGS, "name", "setting")
+        device = _pick_rotating_option(COMEDY_DEVICES, "name", "device")
+        tried_styles.append(style["style"])
+        topic_seed = f"custom::{user_prompt.lower()}::{setting['name']}::{device['name']}"
+        if topic_seed in tried_seeds:
+            continue
+        tried_seeds.append(topic_seed)
+
+        prompt = f"""You are a top-tier comedy writer for YouTube Shorts.
+Today is {datetime.now().strftime("%B %d, %Y")}. Create a brand-new script in ENGLISH ONLY.
+
+CORE THEME: {user_prompt}
+FRESH ANGLE REQUIREMENT: pick a different subtopic, lens, or twist than the most obvious interpretation.
+SETTING: {setting['instruction']}
+COMEDY DEVICE: {device['instruction']}
+STYLE DIRECTION: {style['instruction']}
+
+Write a very short 4-scene script that is funny, specific, and clearly different from recent outputs.
+
+FORMAT - exactly 4 scenes:
+
+Scene 1 -- Hook
+Visual: [funny, specific scene]
+Narrator: [sharp hook line]
+
+Scene 2 -- Problem
+Visual: [escalating visual gag]
+Character 1: [short line]
+Character 2: [short response]
+
+Scene 3 -- Punchline
+Visual: [unexpected twist]
+Narrator: [short punchline]
+
+Scene 4 -- Ending
+Visual: [reaction shot]
+Narrator: [final memorable line]
+
+RULES:
+- Must be original and not similar to recent scripts
+- English only
+- Keep spoken lines concise and punchy
+- Each scene must move to a fresh beat
+- Avoid generic AI wording and obvious repeated jokes
+"""
+        if uniqueness_block:
+            prompt += f"\n\nSTRICT UNIQUENESS MEMORY:\n{uniqueness_block}"
+
+        try:
+            safe_print(f"  [SCRIPT] Attempt {attempt + 1}/6 - custom theme")
+            script = llm.generate(prompt)
+            title = _extract_title_from_script(script)
+            hook = _extract_hook_from_script(script)
+            signature = _build_script_signature(script)
+            is_fresh, reason = _script_is_fresh(title, hook, signature, topic_seed)
+            if not is_fresh:
+                raise RuntimeError(reason)
+
+            _record_generated_script(
+                title=title,
+                angle="custom",
+                hook=hook,
+                style=style["style"],
+                topic_seed=topic_seed,
+                script_signature=signature,
+                extra={
+                    "setting": setting["name"],
+                    "device": device["name"],
+                    "source_prompt": user_prompt[:160],
+                },
+            )
+            return script
+        except Exception as exc:
+            last_error = exc
+            safe_print(f"  [WARN] Custom script attempt {attempt + 1} failed: {exc}")
+            time.sleep(attempt + 1)
+
+    raise RuntimeError(f"Failed to generate a fresh custom script. Last error: {last_error}")
+
+
+def generate_satire_script():
+    """Generate a unique satire script with rotating topics and structure."""
+    max_retries = 6
+    uniqueness_block = _build_recent_uniqueness_block()
+    tried_angles = []
+    tried_styles = []
+    tried_settings = []
+    tried_devices = []
+    last_error = None
+
+    for attempt in range(max_retries):
+        now = datetime.now()
+        angle = _pick_satire_angle_fresh(exclude=tried_angles)
+        style = _pick_rotating_option(SCRIPT_STYLES, "style", "style", exclude=tried_styles)
+        setting = _pick_rotating_option(SATIRE_SETTINGS, "name", "setting", exclude=tried_settings)
+        device = _pick_rotating_option(COMEDY_DEVICES, "name", "device", exclude=tried_devices)
+
+        tried_angles.append(angle["angle"])
+        tried_styles.append(style["style"])
+        tried_settings.append(setting["name"])
+        tried_devices.append(device["name"])
+        topic_seed = f"{angle['angle']}::{setting['name']}::{device['name']}"
+
+        prompt = f"""You are a top-tier comedy writer for YouTube Shorts.
+Today is {now.strftime("%B %d, %Y (%A)")}. Generate a brand-new comedy script in ENGLISH ONLY.
+
+TODAY'S ANGLE: {angle['topic']}
+VISUAL INSPIRATION: {angle['visual_hint']}
+STYLE DIRECTION: {style['instruction']}
+SETTING: {setting['instruction']}
+COMEDY DEVICE: {device['instruction']}
+
+Write a very short script (30 seconds / 70-95 words).
+Make it topical and fresh for {now.strftime('%B %Y')}, but safe and non-abusive.
+
+FORMAT - exactly 4 scenes:
+
+Scene 1 -- Hook
+Visual: [describe a funny 3D cartoon scene related to the angle]
+Narrator: [one punchy sarcastic line in English]
+
+Scene 2 -- Problem
+Visual: [visual gag about the angle]
+Modi: [funny dialogue about the angle]
+Rahul: [funny response in English]
+
+Scene 3 -- Punchline
+Visual: [unexpected visual comedy twist]
+Kejriwal: [sarcastic one-liner]
+
+Scene 4 -- Ending
+Visual: [common man reaction shot]
+Narrator: [final punchline with a message]
+
+RULES:
+- Must be completely original and unique
+- Keep it funny and sarcastic
+- No hate speech, no abuse
+- English only
+- Total spoken words: 70-95
+- Each dialogue max 15 words
+- The setup, hook, and payoff must all feel different from recent generations
+- Reference {angle['topic']} creatively
+"""
+        if uniqueness_block:
+            prompt += f"\n\nSTRICT UNIQUENESS MEMORY:\n{uniqueness_block}"
+
+        try:
+            safe_print(f"  [SCRIPT] Attempt {attempt + 1}/{max_retries} - angle: {angle['angle']}")
+            script = llm.generate(prompt)
+            title = _extract_title_from_script(script)
+            hook = _extract_hook_from_script(script)
+            signature = _build_script_signature(script)
+            is_fresh, reason = _script_is_fresh(title, hook, signature, topic_seed)
+            if not is_fresh:
+                raise RuntimeError(reason)
+
+            _record_generated_script(
+                title=title,
+                angle=angle["angle"],
+                hook=hook,
+                style=style["style"],
+                topic_seed=topic_seed,
+                script_signature=signature,
+                extra={
+                    "setting": setting["name"],
+                    "device": device["name"],
+                },
+            )
+            return script
+        except Exception as exc:
+            last_error = exc
+            safe_print(
+                f"  [WARN] Script attempt {attempt + 1} failed "
+                f"({angle['angle']}/{style['style']}/{setting['name']}/{device['name']}): {exc}"
+            )
+            time.sleep(2 * (attempt + 1))
+
+    raise RuntimeError(
+        f"Script generation failed after {max_retries} attempts. "
+        f"Tried angles: {tried_angles}, styles: {tried_styles}. Last error: {last_error}"
+    )
 
 
 def generate_dynamic_metadata(script_text):
@@ -826,7 +1133,7 @@ async def get_status():
 @app.post("/api/generate-script")
 async def generate_script_endpoint(request: GenerateRequest):
     try:
-        script = llm.generate(request.prompt)
+        script = generate_prompted_script(request.prompt)
         return {"script": script}
     except Exception as e:
         traceback.print_exc()

@@ -36,7 +36,8 @@ def main():
     # 1. Topic Generation
     print("\n[1/7] Generating Topics...")
     if USER_PROMPT:
-        best_topic = {"topic": USER_PROMPT, "title": USER_PROMPT, "premise": "User generated", "suggested_duration": 60}
+        best_topic = topic_gen.generate_from_custom(USER_PROMPT)
+        best_topic["topic"] = USER_PROMPT
     else:
         topics = topic_gen.generate_topics(count=3)
         best_topic = topics[0] if topics else {"topic": "AI Mystery", "title": "The AI Mystery", "premise": "A mystery", "suggested_duration": 60}

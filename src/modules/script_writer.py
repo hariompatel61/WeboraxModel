@@ -5,8 +5,10 @@ Supports 30-second shorts to 5-minute stories.
 """
 
 import json
+import random
 from modules.llm_client import LLMClient
 from app_config import Config
+from modules.topic_history import TopicHistory
 
 
 class ScriptWriter:
@@ -58,8 +60,9 @@ Return ONLY valid JSON (no markdown):
 
     def __init__(self):
         self.client = LLMClient()
+        self.history = TopicHistory()
 
-    def _get_random_style(self):
+    def _get_random_style(self, exclude=None):
         """Pick a unique narrative style randomly."""
         styles = [
             "storytelling (immersive, emotional narrative)",
@@ -68,8 +71,36 @@ Return ONLY valid JSON (no markdown):
             "mystery (unfolding a bizarre secret slowly)",
             "documentary (serious cinematic deep-dive)"
         ]
-        import random
-        return random.choice(styles)
+        available = [style for style in styles if style not in (exclude or [])]
+        return random.choice(available or styles)
+
+    def _build_uniqueness_section(self):
+        recent_topics = self.history.get_recent_topics(10)
+        recent_hooks = self.history.get_recent_values("hook", 10)
+        recent_styles = self.history.get_recent_values("style", 6)
+        parts = []
+
+        if recent_topics:
+            parts.append(
+                "Do not repeat these recent titles or subject lines:\n"
+                + "\n".join(f"- {title}" for title in recent_topics)
+            )
+        if recent_hooks:
+            parts.append(
+                "Do not echo these recent opening hooks:\n"
+                + "\n".join(f"- {hook}" for hook in recent_hooks)
+            )
+        if recent_styles:
+            parts.append(
+                "Prefer a different storytelling flavor from these recent styles:\n"
+                + "\n".join(f"- {style}" for style in recent_styles)
+            )
+
+        return "\n\n".join(parts)
+
+    def _build_signature(self, script):
+        text = self.get_full_text(script)
+        return " ".join(text.lower().split())
 
     def write_script(self, topic):
         """Generate a cinematic documentary script from a topic.
@@ -82,48 +113,77 @@ Return ONLY valid JSON (no markdown):
         """
         duration = topic.get("suggested_duration", Config.VIDEO_DURATION)
         settings = Config.get_duration_settings(duration)
-        script_style = self._get_random_style()
+        uniqueness_section = self._build_uniqueness_section()
+        tried_styles = []
+        last_error = None
 
-        prompt = self.PROMPT_TEMPLATE.format(
-            topic=topic.get("topic", "Trending Mystery"),
-            title=topic.get("title", "Cinematic Documentary"),
-            premise=topic.get("premise", "An incredible true story"),
-            tone=topic.get("humor_type", topic.get("tone", "suspenseful")),
-            duration=settings["duration"],
-            min_words=settings["min_words"],
-            max_words=settings["max_words"],
-            script_style=script_style
-        )
+        for _ in range(4):
+            script_style = self._get_random_style(exclude=tried_styles)
+            tried_styles.append(script_style)
 
-        script = self.client.generate_json(prompt)
+            prompt = self.PROMPT_TEMPLATE.format(
+                topic=topic.get("topic", "Trending Mystery"),
+                title=topic.get("title", "Cinematic Documentary"),
+                premise=topic.get("premise", "An incredible true story"),
+                tone=topic.get("humor_type", topic.get("tone", "suspenseful")),
+                duration=settings["duration"],
+                min_words=settings["min_words"],
+                max_words=settings["max_words"],
+                script_style=script_style,
+            )
 
-        # Handle various response formats
-        if isinstance(script, str):
-            import json
+            if uniqueness_section:
+                prompt += f"\n\nSTRICT UNIQUENESS RULES:\n{uniqueness_section}\n\nThe hook, escalation, and ending must all feel materially different from the recent scripts above."
+
             try:
-                script = json.loads(script)
-            except:
-                script = {
-                    "hook": script[:100], 
-                    "segments": [
-                        {"type": "hook", "line": script[:100], "speaker": "NARRATOR", "tone": "intense"},
-                        {"type": "story", "line": script, "speaker": "NARRATOR", "tone": "neutral"}
-                    ]
-                }
+                script = self.client.generate_json(prompt)
 
-        # Normalize to 'script_lines' for backward compatibility with editor if needed
-        if "segments" in script and "script_lines" not in script:
-            script["script_lines"] = script["segments"]
+                if isinstance(script, str):
+                    try:
+                        script = json.loads(script)
+                    except Exception:
+                        script = {
+                            "hook": script[:100],
+                            "segments": [
+                                {"type": "hook", "line": script[:100], "speaker": "NARRATOR", "tone": "intense"},
+                                {"type": "story", "line": script, "speaker": "NARRATOR", "tone": "neutral"},
+                            ],
+                        }
 
-        script["target_duration"] = settings["duration"]
-        script["applied_style"] = script_style
-        
-        # Inject pacing markers if missing (for edge-tts/voiceover)
-        for line in script.get("script_lines", []):
-            if "..." in line["line"] and "<break" not in line["line"]:
-                line["line"] = line["line"].replace("...", ' <break time="0.5s"/> ')
-        
-        return script
+                if "segments" in script and "script_lines" not in script:
+                    script["script_lines"] = script["segments"]
+
+                script["target_duration"] = settings["duration"]
+                script["applied_style"] = script_style
+
+                for line in script.get("script_lines", []):
+                    if "..." in line["line"] and "<break" not in line["line"]:
+                        line["line"] = line["line"].replace("...", ' <break time="0.5s"/> ')
+
+                hook = script.get("hook", "")
+                signature = self._build_signature(script)
+
+                if self.history.is_similar_to_recent(hook, field="hook", threshold=0.52, limit=25):
+                    raise ValueError("Generated hook is too similar to a recent script.")
+                if self.history.is_similar_to_recent(signature, field="script_signature", threshold=0.65, limit=25):
+                    raise ValueError("Generated script body is too similar to a recent script.")
+
+                self.history.add_topic(
+                    title=topic.get("title", topic.get("topic", "Untitled")),
+                    angle=topic.get("category", ""),
+                    extra={
+                        "hook": hook,
+                        "style": script_style,
+                        "topic_seed": topic.get("topic_seed", topic.get("topic", "")),
+                        "trending_focus": topic.get("trending_focus", ""),
+                        "script_signature": signature,
+                    },
+                )
+                return script
+            except Exception as exc:
+                last_error = exc
+
+        raise RuntimeError(f"Unable to generate a fresh script after multiple attempts: {last_error}")
 
     def get_full_text(self, script):
         """Get the full script as plain text for voiceover.

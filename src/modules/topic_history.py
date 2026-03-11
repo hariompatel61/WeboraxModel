@@ -8,7 +8,7 @@ Stores entries in outputs/topic_history.json with fuzzy duplicate detection.
 import json
 import os
 import re
-from datetime import datetime, timedelta
+from datetime import datetime
 
 
 class TopicHistory:
@@ -72,6 +72,21 @@ class TopicHistory:
         """
         return [e.get("topic", "") for e in self._history[-n:]]
 
+    def get_recent_entries(self, n=20):
+        """Get the last N raw history entries."""
+        return self._history[-n:]
+
+    def get_recent_values(self, field, n=20):
+        """Get the last N non-empty values for a field."""
+        values = []
+        for entry in reversed(self._history):
+            value = entry.get(field)
+            if value:
+                values.append(value)
+            if len(values) >= n:
+                break
+        return list(reversed(values))
+
     def get_recent_angles(self, n=10):
         """Get the last N satire angles used.
 
@@ -92,12 +107,16 @@ class TopicHistory:
         Returns:
             bool: True if title is likely a duplicate.
         """
-        candidate_words = set(self._normalize(title).split())
+        return self.is_similar_to_recent(title, field="topic", threshold=threshold, limit=30)
+
+    def is_similar_to_recent(self, text, field="topic", threshold=0.6, limit=30):
+        """Check whether text is too similar to recent values for a field."""
+        candidate_words = set(self._normalize(text).split())
         if not candidate_words:
             return False
 
-        for past in self.get_recent_topics(30):
-            past_words = set(self._normalize(past).split())
+        for past in self.get_recent_values(field, limit):
+            past_words = set(self._normalize(str(past)).split())
             if not past_words:
                 continue
             overlap = len(candidate_words & past_words)
